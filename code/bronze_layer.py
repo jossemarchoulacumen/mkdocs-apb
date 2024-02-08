@@ -1,12 +1,13 @@
 ####################
 # Spark
 ####################
-
 # Import
+import sys
+sys.path.insert(1, '/opt/airflow/dags/repo/CommonFunctions')
+from shared_spark_config import *
 import os
 import socket
 from os.path import abspath
-import sys
 import s3fs
 import pyspark
 from pyspark import SparkFiles
@@ -18,39 +19,14 @@ os.environ['PYSPARK_PYTHON'] = "/opt/bitnami/python/bin/python3"
 os.environ['PYSPARK_DRIVER_PYTHON'] = "/opt/bitnami/python/bin/python3"
 warehouse_location = abspath('spark-warehouse')
 
-# Connection details
+# Connection
 hostname = socket.gethostname()
 pod_ip_address = socket.gethostbyname(hostname)
 print(f"Hostname: {hostname}")
 print(f"POD IP Address: {pod_ip_address}")
 
-# Spark session
-spark = SparkSession.builder \
-        .appName("Spark_Bronze_layer") \
-        .config("spark.sql.catalogImplementation", "hive") \
-        .config("spark.sql.hive.metastore.version","3.0.0") \
-        .config("spark.sql.catalogImplementation","hive") \
-        .config("spark.driver.extraClassPath","/opt/bitnami/spark/jars/aws-java-sdk-bundle-1.12.262.jar:/opt/bitnami/spark/jars/hadoop-aws-3.3.4.jar") \
-        .config("spark.driver.jars","/opt/bitnami/spark/jars/aws-java-sdk-bundle-1.12.262.jar:/opt/bitnami/spark/jars/hadoop-aws-3.3.4.jar") \
-        .config("spark.driver.memory", "6g") \
-        .config("spark.executor.memory", "6g") \
-        .config("spark.driver.port","7077") \
-        .config("spark.blockManager.port", "40077") \
-        .config("spark.driver.bindAddress","0.0.0.0") \
-        .config("spark.driver.host",pod_ip_address) \
-        .config("spark.driver.url" ,pod_ip_address) \
-        .config("spark.sql.hive.metastore.jars","file://opt/bitnami/spark/jars/*") \
-        .config("hive.metastore.uris", "thrift://hive-metastore.acumen.svc.cluster.local:9083") \
-        .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider") \
-        .config("spark.hadoop.fs.s3a.endpoint","http://minio.acumen.svc.cluster.local:9000") \
-        .config("spark.hadoop.fs.s3a.access.key", "accesskey") \
-        .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider") \
-        .config("spark.hadoop.fs.s3a.secret.key", "secretkey") \
-        .config("spark.hadoop.fs.s3a.path.style.access", "true") \
-        .config("spark.sql.hive.convertMetastoreOrc","true") \
-        .config("spark.sql.warehouse.dir","s3a://spark/warehouse") \
-        .enableHiveSupport() \
-        .getOrCreate()
+# Session
+spark = get_shared_spark_session(appName="Spark_Bronze_layer")
 
 # Defining file system
 s3 = s3fs.S3FileSystem(anon=False, client_kwargs={'aws_access_key_id':'accesskey', 'aws_secret_access_key':'secretkey', 'endpoint_url': 'http://minio.acumen.svc.cluster.local:9000'})
@@ -74,6 +50,9 @@ from pyspark.sql.column import Column, _to_java_column
 from pyspark.sql.types import _parse_datatype_json_string, StructType, ArrayType, StringType, LongType, DoubleType, BooleanType, StructField,StructType, TimestampType, DateType, IntegerType
 from pyspark.sql.functions import struct, array, transform, schema_of_json, from_json, to_json, col, unbase64, explode, col, lit, startswith, collect_list, sort_array, concat_ws, when, regexp_replace, regexp_extract, row_number
 from pyspark.sql.window import Window
+from datetime import datetime
+import datetime
+import time
 import re
 
 
@@ -128,6 +107,7 @@ def unfolding_singlemessage(df, main_keys=None, BatchDate=None):
         df (dataframe): Dataframe to call the function on
         main_keys (array): Columns that should be included in the underlying dataframes 
         BatchDate (string): For logging purposes
+        
     Returns:
         df (dataframe): Unfolded dataframe
     """
@@ -729,7 +709,7 @@ def bronze_layer_master(input_path, output_path, source):
         for df in dfs_to_create:
             if df in dispenses.columns:
                 if df == 'product':
-                     df_to_process[df] =  dispenses[[*main_keys, df, 'patient', 'patientConcat', 'dispensedWithPrescription', 'nihiiPharmacyNumber']]
+                    df_to_process[df] =  dispenses[[*main_keys, df, 'patient', 'patientConcat', 'dispensedWithPrescription', 'nihiiPharmacyNumber']]
                 else:  
                     df_to_process[df] =  dispenses[[*main_keys, df]]
 
@@ -759,7 +739,7 @@ def bronze_layer_master(input_path, output_path, source):
 
 # bronze_layer_master("s3a://spark/landingzone/single-messages/202309/20230903/*.annon.gz", "s3a://spark/bronze/20230903/", "single-message")
 
-for i in ['20230903']: # ['20230901', '20230902', '20230904', '20230905', '20230906']:
+for i in ['20230905']: # ['20230901', '20230902', '20230904', '20230905', '20230906']:
      input = 's3a://spark/landingzone/single-messages/202309/' + i + '/*.annon.gz'
      output = 's3a://spark/bronze/' + i + '/'
      bronze_layer_master(input, output, "single-message")
